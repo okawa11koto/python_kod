@@ -1,7 +1,9 @@
-import requests
-from bs4 import BeautifulSoup
-import json
+import os
+import requests # type: ignore
+from bs4 import BeautifulSoup # type: ignore
 import datetime
+import tkinter as tk
+from tkinter import messagebox, filedialog
 
 # Базовый класс парсера
 class Parser:
@@ -22,9 +24,13 @@ class Parser:
     def parse(self):
         raise NotImplementedError("Метод parse() должен быть реализован в подклассе")
 
-    def save_results(self, filename="parsed_data.json"):
+    def save_results(self, filename="parsed_data.html"):
         with open(filename, "w", encoding="utf-8") as f:
-            json.dump(self.results, f, ensure_ascii=False, indent=4)
+            f.write("<html><head><title>Результаты парсинга</title></head><body>")
+            f.write("<h1>Результаты парсинга</h1>")
+            for result in self.results:
+                f.write(f"<p><a href='{result.get('link', '#')}'>{result.get('title', 'Без заголовка')}</a></p>")
+            f.write("</body></html>")
         self.log(f"Результаты сохранены в файл {filename}")
 
     def log(self, message):
@@ -68,7 +74,7 @@ class QuotesParser(Parser):
                 text = quote.find("span", class_="text").get_text(strip=True)
                 author = quote.find("small", class_="author").get_text(strip=True)
                 if any(keyword.lower() in text.lower() for keyword in self.keywords):
-                    self.results.append({"quote": text, "author": author})
+                    self.results.append({"title": text, "link": f"Автор: {author}"})
         else:
             self.log("Цитаты не найдены на Quotes to Scrape.")
 
@@ -99,26 +105,82 @@ class BlogParser(Parser):
 
         self.log(f"Найдено {len(self.results)} статей на Habr")
 
-# Основной код
-if __name__ == "__main__":
-    # Указываем ключевые слова и ссылки на сайты
-    keywords = ["Работа", "Год", "Читать"]
-    parsers = [
-        WikipediaParser("https://ru.wikipedia.org", keywords),
-        QuotesParser("http://quotes.toscrape.com", keywords),
-        BlogParser("https://habr.com/ru/", keywords),
-    ]
+# Функции для работы с GUI
+def start_parsing():
+    keywords = entry_keywords.get().split(",")
+    keywords = [kw.strip() for kw in keywords if kw.strip()]
 
-    # Запускаем парсинг
+    if not keywords:
+        messagebox.showerror("Ошибка", "Введите хотя бы одно ключевое слово!")
+        return
+
+    selected_sites = []
+    if var_wikipedia.get():
+        selected_sites.append(WikipediaParser("https://ru.wikipedia.org", keywords))
+    if var_quotes.get():
+        selected_sites.append(QuotesParser("http://quotes.toscrape.com", keywords))
+    if var_habr.get():
+        selected_sites.append(BlogParser("https://habr.com/ru/", keywords))
+
+    if not selected_sites:
+        messagebox.showerror("Ошибка", "Выберите хотя бы один сайт для парсинга!")
+        return
+
     all_results = []
-    for parser in parsers:
+    for parser in selected_sites:
         parser.parse()
         all_results.extend(parser.results)
 
-    # Сохраняем все в логи
-    output_file = "aggregated_results.json"
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(all_results, f, ensure_ascii=False, indent=4)
+    if all_results:
+        save_path = filedialog.asksaveasfilename(defaultextension=".html", filetypes=[("HTML files", "*.html")])
+        if save_path:
+            selected_sites[0].save_results(save_path)
+            messagebox.showinfo("Успех", f"Парсинг завершён! Результаты сохранены в {save_path}")
+    else:
+        messagebox.showinfo("Результаты", "Не найдено данных по заданным ключевым словам.")
 
-    print(f"Все данные сохранены в файл {output_file}")
+# Создание GUI
+root = tk.Tk()
+root.title("Парсер сайтов")
+
+# Поле для ввода ключевых слов
+frame_top = tk.Frame(root)
+frame_top.pack(pady=10)
+
+label_keywords = tk.Label(frame_top, text="Введите ключевые слова через запятую:")
+label_keywords.pack()
+
+entry_keywords = tk.Entry(frame_top, width=50)
+entry_keywords.pack()
+
+# Флажки для выбора сайтов
+frame_middle = tk.Frame(root)
+frame_middle.pack(pady=10)
+
+label_sites = tk.Label(frame_middle, text="Выберите сайты для парсинга:")
+label_sites.pack()
+
+var_wikipedia = tk.BooleanVar()
+check_wikipedia = tk.Checkbutton(frame_middle, text="Wikipedia", variable=var_wikipedia)
+check_wikipedia.pack(anchor="w")
+
+var_quotes = tk.BooleanVar()
+check_quotes = tk.Checkbutton(frame_middle, text="Quotes to Scrape", variable=var_quotes)
+check_quotes.pack(anchor="w")
+
+var_habr = tk.BooleanVar()
+check_habr = tk.Checkbutton(frame_middle, text="Habr", variable=var_habr)
+check_habr.pack(anchor="w")
+
+# Кнопка для запуска парсинга
+frame_bottom = tk.Frame(root)
+frame_bottom.pack(pady=20)
+
+button_start = tk.Button(frame_bottom, text="Начать парсинг", command=start_parsing)
+button_start.pack()
+
+# Запуск приложения
+root.mainloop()
+
+
 
